@@ -63,7 +63,7 @@ const settingsCommand = {
             const embed = EmbedUtils.createInfoEmbed(
                 '⚙️ إعدادات حسابك',
                 '',
-                config.colors.primary
+                0x0099ff
             );
 
             const favoritesStatus = settings.show_only_favorites ? "✅ مفعل" : "❌ معطل";
@@ -138,7 +138,7 @@ const dashboardCommand = {
             const embed = EmbedUtils.createInfoEmbed(
                 `🎯 لوحة التحكم - ${interaction.user.displayName}`,
                 '',
-                config.colors.info
+                x9966ff
             );
 
             // الفرق المفضلة
@@ -343,7 +343,7 @@ const exportDataCommand = {
             const embed = EmbedUtils.createInfoEmbed(
                 '📁 تصدير البيانات',
                 'تم تجهيز بياناتك للتصدير',
-                config.colors.primary
+                0x0099ff
             );
 
             embed.addFields(
@@ -387,7 +387,7 @@ const privacyCommand = {
             const embed = EmbedUtils.createInfoEmbed(
                 '🔒 الخصوصية وحماية البيانات',
                 'معلومات هامة حول بياناتك الشخصية',
-                config.colors.info
+                x9966ff
             );
 
             embed.addFields(
