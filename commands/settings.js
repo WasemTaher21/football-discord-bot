@@ -2,9 +2,8 @@ const { SlashCommandBuilder } = require('discord.js');
 const EmbedUtils = require('../utils/embeds');
 const HelperUtils = require('../utils/helpers');
 const { database } = require('../database/database');
-const config = require('../config/config');
 
-// أمر إدارة إعدادات المستخدم
+// أمر إدارة إعدادات المستخدم (محسن)
 const settingsCommand = {
     data: new SlashCommandBuilder()
         .setName('settings')
@@ -19,7 +18,7 @@ const settingsCommand = {
                 .setRequired(false))
         .addStringOption(option =>
             option.setName('language')
-                .setDescription('اللغة المفضلة للمعلقين والقنوات')
+                .setDescription('اللغة المفضلة')
                 .setRequired(false)
                 .addChoices(
                     { name: 'العربية', value: 'ar' },
@@ -27,43 +26,68 @@ const settingsCommand = {
                 )),
 
     async execute(interaction, client) {
-        await interaction.deferReply();
-
         try {
+            // رد فوري لتجنب timeout
+            await interaction.reply({
+                content: '⚙️ جاري تحميل إعداداتك...',
+                ephemeral: true
+            });
+
             const userId = interaction.user.id;
             const showOnlyFavorites = interaction.options.getBoolean('show_only_favorites');
             const notifications = interaction.options.getBoolean('notifications');
             const language = interaction.options.getString('language');
 
-            // إنشاء إعدادات افتراضية إذا لم تكن موجودة
-            let settings = await database.getUserSettings(userId);
+            // جلب أو إنشاء إعدادات بشكل آمن
+            let settings;
+            try {
+                settings = await database.getUserSettings(userId);
+                if (!settings) {
+                    // إنشاء إعدادات افتراضية
+                    await database.run(`
+                        INSERT OR IGNORE INTO user_settings 
+                        (user_id, show_only_favorites, notifications_enabled, preferred_language)
+                        VALUES (?, 1, 1, 'ar')
+                    `, [userId]);
+                    settings = {
+                        show_only_favorites: true,
+                        notifications_enabled: true,
+                        preferred_language: 'ar'
+                    };
+                }
+            } catch (error) {
+                // إعدادات افتراضية في حالة فشل قاعدة البيانات
+                settings = {
+                    show_only_favorites: true,
+                    notifications_enabled: true,
+                    preferred_language: 'ar'
+                };
+            }
 
             // تحديث الإعدادات إذا تم تمرير قيم جديدة
-            const updates = {};
-            
-            if (showOnlyFavorites !== null) {
-                updates.showOnlyFavorites = showOnlyFavorites;
-            }
-            
-            if (notifications !== null) {
-                updates.notifications = notifications;
-            }
-            
-            if (language !== null) {
-                updates.language = language;
+            if (showOnlyFavorites !== null || notifications !== null || language !== null) {
+                try {
+                    const updates = {};
+                    if (showOnlyFavorites !== null) updates.showOnlyFavorites = showOnlyFavorites;
+                    if (notifications !== null) updates.notifications = notifications;
+                    if (language !== null) updates.language = language;
+
+                    if (Object.keys(updates).length > 0) {
+                        await database.updateUserSettings(userId, updates);
+                        // تحديث الإعدادات المحلية
+                        if (showOnlyFavorites !== null) settings.show_only_favorites = showOnlyFavorites;
+                        if (notifications !== null) settings.notifications_enabled = notifications;
+                        if (language !== null) settings.preferred_language = language;
+                    }
+                } catch (error) {
+                    console.log('Update settings error:', error);
+                }
             }
 
-            if (Object.keys(updates).length > 0) {
-                await database.updateUserSettings(userId, updates);
-            }
-
-            // جلب الإعدادات المحدثة
-            settings = await database.getUserSettings(userId);
-
+            // إنشاء الـ embed
             const embed = EmbedUtils.createInfoEmbed(
                 '⚙️ إعدادات حسابك',
-                '',
-                0x0099ff
+                `مرحباً ${interaction.user.displayName}! هذه إعداداتك الحالية:`
             );
 
             const favoritesStatus = settings.show_only_favorites ? "✅ مفعل" : "❌ معطل";
@@ -72,82 +96,114 @@ const settingsCommand = {
 
             embed.addFields(
                 {
-                    name: '⭐ عرض الفرق المفضلة فقط',
-                    value: `${favoritesStatus}\n*عرض مباريات فرقك المفضلة فقط بشكل افتراضي*`,
-                    inline: false
+                    name: '⭐ عرض المفضلة فقط',
+                    value: `${favoritesStatus}\n*عرض مباريات فرقك المفضلة فقط*`,
+                    inline: true
                 },
                 {
                     name: '🔔 التنبيهات',
                     value: `${notificationsStatus}\n*تنبيهات مباريات فرقك المفضلة*`,
-                    inline: false
+                    inline: true
                 },
                 {
                     name: '🌍 اللغة المفضلة',
-                    value: `${languageDisplay}\n*لغة المعلقين والقنوات المفضلة*`,
+                    value: `${languageDisplay}\n*لغة المعلقين والقنوات*`,
+                    inline: true
+                }
+            );
+
+            // جلب إحصائيات بسيطة
+            let teamCount = 0;
+            let playerCount = 0;
+            try {
+                const teams = await database.all('SELECT COUNT(*) as count FROM user_favorites WHERE user_id = ?', [userId]);
+                const players = await database.all('SELECT COUNT(*) as count FROM user_favorite_players WHERE user_id = ?', [userId]);
+                teamCount = teams[0]?.count || 0;
+                playerCount = players[0]?.count || 0;
+            } catch (error) {
+                console.log('Stats error:', error);
+            }
+
+            embed.addFields(
+                {
+                    name: '📊 إحصائياتك',
+                    value: `⭐ ${teamCount} فريق مفضل\n🏃‍♂️ ${playerCount} لاعب مفضل`,
+                    inline: false
+                },
+                {
+                    name: '🔧 تغيير الإعدادات',
+                    value: '• `/settings show_only_favorites:False`\n• `/settings notifications:True`\n• `/settings language:en`',
                     inline: false
                 }
             );
 
-            embed.addFields({
-                name: '🔧 تغيير الإعدادات',
-                value: 'استخدم الأمر مع المعاملات:\n• `/settings show_only_favorites:False`\n• `/settings notifications:True`\n• `/settings language:en`',
-                inline: false
+            embed.setFooter({ text: '💡 استخدم /help للمزيد من الأوامر' });
+
+            await interaction.editReply({ 
+                content: null,
+                embeds: [embed] 
             });
-
-            // إضافة إحصائيات
-            const favoriteTeams = await database.getUserFavoriteTeams(userId);
-            const favoritePlayers = await database.getUserFavoritePlayers(userId);
-
-            embed.addFields({
-                name: '📊 إحصائياتك',
-                value: `⭐ ${favoriteTeams.length} فريق مفضل\n🏃‍♂️ ${favoritePlayers.length} لاعب مفضل`,
-                inline: false
-            });
-
-            await interaction.followUp({ embeds: [embed] });
 
         } catch (error) {
-            console.error('Error in settings command:', error);
-            const errorEmbed = EmbedUtils.createErrorEmbed('حدث خطأ أثناء إدارة الإعدادات. يرجى المحاولة مرة أخرى.');
-            await interaction.followUp({ embeds: [errorEmbed] });
+            console.error('Settings command error:', error);
+            try {
+                await interaction.editReply({
+                    content: '❌ حدث خطأ في الإعدادات. جرب مرة أخرى لاحقاً.',
+                    embeds: []
+                });
+            } catch (e) {
+                console.error('Error editing reply:', e);
+            }
         }
     }
 };
 
-// أمر لوحة التحكم الشخصية
+// أمر لوحة التحكم (محسن)
 const dashboardCommand = {
     data: new SlashCommandBuilder()
         .setName('my_dashboard')
         .setDescription('لوحة التحكم الشخصية'),
 
     async execute(interaction, client) {
-        await interaction.deferReply();
-
         try {
+            await interaction.reply({
+                content: '🎯 جاري تحميل لوحة التحكم...',
+                ephemeral: true
+            });
+
             const userId = interaction.user.id;
 
-            // جلب الفرق المفضلة
-            const favoriteTeams = await database.getUserFavoriteTeams(userId);
+            // جلب البيانات بشكل متوازي وآمن
+            let favoriteTeams = [];
+            let favoritePlayers = [];
+            let settings = null;
 
-            // جلب اللاعبين المفضلين
-            const favoritePlayers = await database.getUserFavoritePlayers(userId);
+            try {
+                const [teams, players, userSettings] = await Promise.allSettled([
+                    database.getUserFavoriteTeams(userId),
+                    database.getUserFavoritePlayers(userId),
+                    database.getUserSettings(userId)
+                ]);
 
-            // جلب إعدادات المستخدم
-            const settings = await database.getUserSettings(userId);
+                favoriteTeams = teams.status === 'fulfilled' ? teams.value : [];
+                favoritePlayers = players.status === 'fulfilled' ? players.value : [];
+                settings = userSettings.status === 'fulfilled' ? userSettings.value : null;
+            } catch (error) {
+                console.log('Dashboard data error:', error);
+            }
 
             const embed = EmbedUtils.createInfoEmbed(
                 `🎯 لوحة التحكم - ${interaction.user.displayName}`,
-                '',
-                0x9966ff
+                'مرحباً! هذه نظرة سريعة على حسابك:'
             );
 
-            // الفرق المفضلة
+            // عرض الفرق المفضلة
             if (favoriteTeams.length > 0) {
                 let teamsText = '';
-                const displayTeams = favoriteTeams.slice(0, 3); // أول 3 فرق
+                const displayTeams = favoriteTeams.slice(0, 3);
                 
                 for (const team of displayTeams) {
-                    const flag = HelperUtils.getCountryFlag(team.country);
+                    const flag = HelperUtils.getCountryFlag(team.country || 'default');
                     teamsText += `⭐ ${team.team_name} ${flag}\n`;
                 }
 
@@ -163,18 +219,18 @@ const dashboardCommand = {
             } else {
                 embed.addFields({
                     name: '⚽ فرقك المفضلة (0)',
-                    value: 'لم تضف أي فريق بعد\n`/add_team [اسم الفريق]`',
+                    value: 'لم تضف أي فريق بعد\n`/add_team Real Madrid`',
                     inline: true
                 });
             }
 
-            // اللاعبين المفضلين
+            // عرض اللاعبين المفضلين
             if (favoritePlayers.length > 0) {
                 let playersText = '';
-                const displayPlayers = favoritePlayers.slice(0, 3); // أول 3 لاعبين
+                const displayPlayers = favoritePlayers.slice(0, 3);
                 
                 for (const player of displayPlayers) {
-                    const flag = HelperUtils.getCountryFlag(player.nationality);
+                    const flag = HelperUtils.getCountryFlag(player.nationality || 'default');
                     playersText += `🏃‍♂️ ${player.player_name} ${flag}\n`;
                 }
 
@@ -190,12 +246,12 @@ const dashboardCommand = {
             } else {
                 embed.addFields({
                     name: '🏃‍♂️ لاعبوك المفضلون (0)',
-                    value: 'لم تضف أي لاعب بعد\n`/add_player [اسم اللاعب]`',
+                    value: 'لم تضف أي لاعب بعد\n`/add_player Messi`',
                     inline: true
                 });
             }
 
-            // الإعدادات
+            // عرض الإعدادات
             if (settings) {
                 const favoritesOnly = settings.show_only_favorites ? "✅" : "❌";
                 const notifications = settings.notifications_enabled ? "🔔" : "🔕";
@@ -208,219 +264,138 @@ const dashboardCommand = {
                 });
             }
 
-            // المباريات القادمة للفرق المفضلة
-            if (favoriteTeams.length > 0) {
-                try {
-                    const today = HelperUtils.getTodayDate();
-                    const endDate = HelperUtils.getDateAfterDays(3);
-                    
-                    const data = await HelperUtils.makeAPIRequest(`/matches?dateFrom=${today}&dateTo=${endDate}`);
-                    
-                    if (!data.error) {
-                        const matches = data.matches || [];
-                        const upcomingFavoriteMatches = await HelperUtils.filterMatchesByFavorites(matches, userId);
-
-                        if (upcomingFavoriteMatches.length > 0) {
-                            const nextMatch = upcomingFavoriteMatches[0];
-                            const homeTeam = nextMatch.homeTeam.name;
-                            const awayTeam = nextMatch.awayTeam.name;
-                            const matchTime = new Date(nextMatch.utcDate);
-                            const timestamp = Math.floor(matchTime.getTime() / 1000);
-
-                            embed.addFields({
-                                name: '🔥 مباراتك القادمة',
-                                value: `⚽ ${homeTeam} 🆚 ${awayTeam}\n🕐 <t:${timestamp}:R>\n🏆 ${nextMatch.competition.name}`,
-                                inline: false
-                            });
-                        } else {
-                            embed.addFields({
-                                name: '📅 مباراتك القادمة',
-                                value: 'لا توجد مباريات لفرقك المفضلة في الأيام القليلة القادمة',
-                                inline: false
-                            });
-                        }
-                    }
-                } catch (error) {
-                    // تجاهل الأخطاء في جلب المباريات القادمة
-                }
-            }
-
             // الأوامر السريعة
             embed.addFields({
                 name: '⚡ أوامر سريعة',
-                value: '• `/matches` - مباريات اليوم\n• `/my_teams` - فرقك المفضلة\n• `/my_players` - لاعبوك المفضلون\n• `/settings` - إعداداتك',
+                value: '• `/matches` - مباريات اليوم\n• `/add_team` - إضافة فريق\n• `/help` - المساعدة',
                 inline: false
             });
 
-            embed.setFooter({ text: '💡 لوحة التحكم الشخصية • محدثة الآن' });
+            embed.setFooter({ text: '💡 لوحة التحكم الشخصية' });
 
-            await interaction.followUp({ embeds: [embed] });
+            await interaction.editReply({ 
+                content: null,
+                embeds: [embed] 
+            });
 
         } catch (error) {
-            console.error('Error in dashboard command:', error);
-            const errorEmbed = EmbedUtils.createErrorEmbed('حدث خطأ أثناء جلب لوحة التحكم. يرجى المحاولة مرة أخرى.');
-            await interaction.followUp({ embeds: [errorEmbed] });
+            console.error('Dashboard error:', error);
+            try {
+                await interaction.editReply({
+                    content: '❌ حدث خطأ في لوحة التحكم. جرب مرة أخرى لاحقاً.',
+                    embeds: []
+                });
+            } catch (e) {
+                console.error('Error editing reply:', e);
+            }
         }
     }
 };
 
-// أمر إعادة تعيين البيانات
+// أمر إعادة تعيين البيانات (مبسط)
 const resetDataCommand = {
     data: new SlashCommandBuilder()
         .setName('reset_data')
-        .setDescription('إعادة تعيين جميع بياناتك (غير قابل للتراجع!)')
+        .setDescription('إعادة تعيين جميع بياناتك')
         .addStringOption(option =>
             option.setName('confirmation')
-                .setDescription('اكتب "تأكيد" لإعادة التعيين')
+                .setDescription('اكتب "تأكيد" لحذف جميع البيانات')
                 .setRequired(true)),
 
     async execute(interaction, client) {
-        await interaction.deferReply({ ephemeral: true });
-
         try {
             const confirmation = interaction.options.getString('confirmation');
             const userId = interaction.user.id;
 
             if (confirmation !== 'تأكيد' && confirmation !== 'confirm') {
-                const embed = EmbedUtils.createWarningEmbed(
-                    'لم يتم تأكيد العملية. اكتب "تأكيد" للمتابعة.',
-                    '⚠️ لم يتم التأكيد'
-                );
-                return await interaction.followUp({ embeds: [embed] });
+                return await interaction.reply({
+                    content: '⚠️ لم يتم التأكيد. اكتب "تأكيد" للمتابعة.',
+                    ephemeral: true
+                });
             }
 
-            // حذف جميع البيانات
-            await database.run('DELETE FROM user_favorites WHERE user_id = ?', [userId]);
-            await database.run('DELETE FROM user_favorite_players WHERE user_id = ?', [userId]);
-            await database.run('DELETE FROM user_settings WHERE user_id = ?', [userId]);
-            await database.run('DELETE FROM match_notifications WHERE user_id = ?', [userId]);
+            await interaction.reply({
+                content: '🗑️ جاري حذف البيانات...',
+                ephemeral: true
+            });
+
+            // حذف البيانات
+            try {
+                await database.run('DELETE FROM user_favorites WHERE user_id = ?', [userId]);
+                await database.run('DELETE FROM user_favorite_players WHERE user_id = ?', [userId]);
+                await database.run('DELETE FROM user_settings WHERE user_id = ?', [userId]);
+            } catch (error) {
+                console.log('Delete error:', error);
+            }
 
             const embed = EmbedUtils.createSuccessEmbed(
-                'تم حذف جميع بياناتك بنجاح.\n\n• الفرق المفضلة ❌\n• اللاعبين المفضلين ❌\n• الإعدادات الشخصية ❌\n• التنبيهات ❌\n\nيمكنك البدء من جديد باستخدام `/add_team` و `/add_player`',
-                '🗑️ تم إعادة تعيين البيانات'
+                '✅ تم حذف جميع بياناتك بنجاح!\n\n• الفرق المفضلة ❌\n• اللاعبين المفضلين ❌\n• الإعدادات ❌\n\n💡 يمكنك البدء من جديد باستخدام `/add_team`',
+                '🗑️ إعادة تعيين البيانات'
             );
 
-            await interaction.followUp({ embeds: [embed] });
+            await interaction.editReply({ 
+                content: null,
+                embeds: [embed] 
+            });
 
         } catch (error) {
-            console.error('Error in reset_data command:', error);
-            const errorEmbed = EmbedUtils.createErrorEmbed('حدث خطأ أثناء إعادة تعيين البيانات. يرجى المحاولة مرة أخرى.');
-            await interaction.followUp({ embeds: [errorEmbed] });
+            console.error('Reset data error:', error);
+            try {
+                await interaction.editReply({
+                    content: '❌ حدث خطأ أثناء حذف البيانات.',
+                    embeds: []
+                });
+            } catch (e) {
+                console.error('Error editing reply:', e);
+            }
         }
     }
 };
 
-// أمر تصدير البيانات
-const exportDataCommand = {
-    data: new SlashCommandBuilder()
-        .setName('export_data')
-        .setDescription('تصدير بياناتك الشخصية'),
-
-    async execute(interaction, client) {
-        await interaction.deferReply({ ephemeral: true });
-
-        try {
-            const userId = interaction.user.id;
-
-            // جلب جميع البيانات
-            const favoriteTeams = await database.getUserFavoriteTeams(userId);
-            const favoritePlayers = await database.getUserFavoritePlayers(userId);
-            const settings = await database.getUserSettings(userId);
-
-            // إنشاء ملف JSON
-            const userData = {
-                user_id: userId,
-                username: interaction.user.username,
-                export_date: new Date().toISOString(),
-                favorite_teams: favoriteTeams,
-                favorite_players: favoritePlayers,
-                settings: settings
-            };
-
-            const jsonData = JSON.stringify(userData, null, 2);
-
-            // إنشاء embed مع ملخص البيانات
-            const embed = EmbedUtils.createInfoEmbed(
-                '📁 تصدير البيانات',
-                'تم تجهيز بياناتك للتصدير',
-                0x0099ff
-            );
-
-            embed.addFields(
-                { name: '⭐ الفرق المفضلة', value: `${favoriteTeams.length} فريق`, inline: true },
-                { name: '🏃‍♂️ اللاعبين المفضلين', value: `${favoritePlayers.length} لاعب`, inline: true },
-                { name: '⚙️ الإعدادات', value: settings ? 'محفوظة' : 'افتراضية', inline: true }
-            );
-
-            embed.addFields({
-                name: '💾 ملف البيانات',
-                value: '```json\n' + jsonData.substring(0, 500) + (jsonData.length > 500 ? '...\n```' : '\n```'),
-                inline: false
-            });
-
-            embed.addFields({
-                name: '💡 ملاحظة',
-                value: 'يمكنك نسخ البيانات وحفظها كملف JSON لاستخدامها لاحقاً',
-                inline: false
-            });
-
-            await interaction.followUp({ embeds: [embed] });
-
-        } catch (error) {
-            console.error('Error in export_data command:', error);
-            const errorEmbed = EmbedUtils.createErrorEmbed('حدث خطأ أثناء تصدير البيانات. يرجى المحاولة مرة أخرى.');
-            await interaction.followUp({ embeds: [errorEmbed] });
-        }
-    }
-};
-
-// أمر الخصوصية
+// أمر الخصوصية (مبسط)
 const privacyCommand = {
     data: new SlashCommandBuilder()
         .setName('privacy')
         .setDescription('معلومات الخصوصية وحماية البيانات'),
 
     async execute(interaction, client) {
-        await interaction.deferReply({ ephemeral: true });
-
         try {
             const embed = EmbedUtils.createInfoEmbed(
                 '🔒 الخصوصية وحماية البيانات',
-                'معلومات هامة حول بياناتك الشخصية',
-                0x9966ff
+                'معلومات مهمة حول بياناتك:'
             );
 
             embed.addFields(
                 {
                     name: '📊 البيانات المحفوظة',
-                    value: '• معرف المستخدم في Discord\n• الفرق المفضلة\n• اللاعبين المفضلين\n• الإعدادات الشخصية\n• لا نحفظ الرسائل الشخصية',
+                    value: '• معرف Discord الخاص بك\n• الفرق والاعبين المفضلين\n• الإعدادات الشخصية\n• لا نحفظ الرسائل الخاصة',
                     inline: false
                 },
                 {
                     name: '🔐 الأمان',
-                    value: '• البيانات محفوظة محلياً\n• لا نشارك البيانات مع أطراف ثالثة\n• يمكنك حذف بياناتك في أي وقت\n• التشفير المحلي للبيانات الحساسة',
+                    value: '• البيانات محفوظة محلياً\n• لا نشارك البيانات مع الغير\n• يمكنك حذف بياناتك متى شئت',
                     inline: false
                 },
                 {
                     name: '🛠️ التحكم في البيانات',
-                    value: '• `/export_data` - تصدير بياناتك\n• `/reset_data` - حذف جميع البيانات\n• `/settings` - تحديث إعداداتك\n• `/privacy` - معلومات الخصوصية',
-                    inline: false
-                },
-                {
-                    name: '📧 الاتصال',
-                    value: 'إذا كان لديك أي استفسارات حول الخصوصية، يمكنك التواصل مع إدارة الخادم',
+                    value: '• `/reset_data` - حذف جميع البيانات\n• `/settings` - تحديث الإعدادات\n• `/privacy` - معلومات الخصوصية',
                     inline: false
                 }
             );
 
-            embed.setFooter({ text: '🔒 نحن نحترم خصوصيتك ونحمي بياناتك' });
+            embed.setFooter({ text: '🔒 نحن نحترم خصوصيتك' });
 
-            await interaction.followUp({ embeds: [embed] });
+            await interaction.reply({ 
+                embeds: [embed],
+                ephemeral: true 
+            });
 
         } catch (error) {
-            console.error('Error in privacy command:', error);
-            const errorEmbed = EmbedUtils.createErrorEmbed('حدث خطأ أثناء عرض معلومات الخصوصية. يرجى المحاولة مرة أخرى.');
-            await interaction.followUp({ embeds: [errorEmbed] });
+            console.error('Privacy error:', error);
+            await interaction.reply({
+                content: '❌ حدث خطأ في عرض معلومات الخصوصية.',
+                ephemeral: true
+            });
         }
     }
 };
@@ -430,6 +405,5 @@ module.exports = {
     settings: settingsCommand,
     dashboard: dashboardCommand,
     resetData: resetDataCommand,
-    exportData: exportDataCommand,
     privacy: privacyCommand
 };
