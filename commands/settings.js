@@ -138,7 +138,7 @@ const dashboardCommand = {
             const embed = EmbedUtils.createInfoEmbed(
                 `🎯 لوحة التحكم - ${interaction.user.displayName}`,
                 '',
-                x9966ff
+                0x9966ff
             );
 
             // الفرق المفضلة
@@ -387,7 +387,7 @@ const privacyCommand = {
             const embed = EmbedUtils.createInfoEmbed(
                 '🔒 الخصوصية وحماية البيانات',
                 'معلومات هامة حول بياناتك الشخصية',
-                x9966ff
+                0x9966ff
             );
 
             embed.addFields(
