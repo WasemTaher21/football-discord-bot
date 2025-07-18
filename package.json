@@ -1,0 +1,33 @@
+{
+  "name": "sports-discord-bot",
+  "version": "1.0.0",
+  "description": "بوت ديسكورد رياضي",
+  "main": "index.js",
+  "scripts": {
+    "start": "node index.js",
+    "dev": "nodemon index.js"
+  },
+  "keywords": [
+    "discord",
+    "bot",
+    "sports",
+    "football",
+    "arabic"
+  ],
+  "author": "OSAMA-MARK",
+  "license": "MIT",
+  "dependencies": {
+    "discord.js": "^14.14.1",
+    "axios": "^1.6.0",
+    "sqlite3": "^5.1.6",
+    "dotenv": "^16.3.1",
+    "node-cron": "^3.0.3",
+    "express": "^4.18.2"
+  },
+  "devDependencies": {
+    "nodemon": "^3.0.1"
+  },
+  "engines": {
+    "node": ">=16.0.0"
+  }
+}
