@@ -133,8 +133,4 @@ const privacyCommand = {
     }
 };
 
-module.exports = {
-    settings: settingsCommand,
-    dashboard: dashboardCommand,
-    privacy: privacyCommand
-};
+module.exports = settingsCommand;
