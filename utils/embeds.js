@@ -130,10 +130,12 @@ class EmbedUtils {
             .setTitle(title)
             .setColor(color);
 
-        if (items.length === 0) {
-            embed.setDescription('لا توجد عناصر لعرضها');
-            return embed;
-        }
+        if (description && description.trim().length > 0) {
+        embed.setDescription(description);
+       }
+    
+        return embed;
+   }
 
         // تجميع العناصر في مجموعات
         const maxFieldLength = 1024;
@@ -197,12 +199,10 @@ class EmbedUtils {
     }
 
     // إنشاء embed للمعلومات
-    static createInfoEmbed(title, description, color = config.colors.info) {
-        return new EmbedBuilder()
-            .setTitle(title)
-            .setDescription(description)
-            .setColor(color)
-            .setTimestamp();
+    createInfoEmbed: (title, description, color = 0x0099ff) => {
+    const embed = new EmbedBuilder()
+        .setTitle(title)
+        .setColor(color);
     }
 
     // إنشاء embed للفريق
