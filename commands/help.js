@@ -100,6 +100,4 @@ const helpCommand = {
     }
 };
 
-module.exports = {
-    help: helpCommand
-};
+module.exports = helpCommand;
